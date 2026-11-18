@@ -3,7 +3,8 @@ import { commitInfo, validateReachable } from '../git/objects.ts';
 import { validRef } from '../git/refs.ts';
 export function rest(store,method,url,body) {
   if (['POST','PUT','PATCH'].includes(method)) record(body);
-  const parts=url.pathname.replace(/^\/api\/v3\/?/,'').split('/').filter(Boolean).map(decodeURIComponent),q=url.searchParams;
+  const parts=[],q=url.searchParams;
+  for (const part of url.pathname.slice(7).split('/')) if (part) parts.push(part.includes('%') ? decodeURIComponent(part) : part);
   const ok=(body,status=200,headers={})=>({status,body,headers});
   function page(items) {
     const size=Math.min(100,Math.max(1,Number(q.get('per_page')) || 30)),n=Math.max(1,Number(q.get('page')) || 1),start=(n-1)*size,headers={};

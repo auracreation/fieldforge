@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { putObject, writeTree, writeCommit, reachable, ZERO } from '../src/git/objects.ts';
 import { gitHttp, pkt, decode } from '../src/git/http.ts';
@@ -80,4 +80,13 @@ test('rejected push cannot prime trust for objects that were never stored', () =
   assert.match(push(r,incoming,next,c),/non-fast-forward/); assert(!r.objects.has(tree));
   assert.match(push(r,[staged.objects.get(next)],next,ZERO,'refs/heads/missing-objects'),/ng /);
   assert(!r.refs.has('refs/heads/missing-objects'));
+});
+test('large packs remain canonical across compressed-cache turnover', () => {
+  const objects = Array.from({length:6},()=>({type:'blob',data:randomBytes(2*1024*1024)}));
+  const first=writePack(objects),again=writePack(objects);
+  assert.deepEqual(again,first);
+  const decoded=readPack(again);
+  for(const o of objects)assert.deepEqual(decoded.get(createHash('sha1').update(`blob ${o.data.length}\0`).update(o.data).digest('hex')).data,o.data);
+  const big={type:'blob',data:randomBytes(9*1024*1024)};
+  assert.deepEqual(readPack(writePack([big])).values().next().value.data,big.data);
 });
