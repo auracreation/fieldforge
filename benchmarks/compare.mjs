@@ -30,6 +30,7 @@ if (mode === 'serve') {
   const network = `fieldforge-bench-${process.pid}`;
   const docker = (...argv) => execFileSync('docker', argv, { encoding: 'utf8', timeout: 180_000 }).trim();
   const limits = ['--cpus', '2', '--memory', '1g', '--memory-swap', '1g', '--pids-limit', '256', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '-u', '65534:65534'];
+  const clientLimits = ['--cpus', '2', '--memory', '256m', '--memory-swap', '256m', '--pids-limit', '64', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '-u', '65534:65534'];
   const runner = ['-v', `${script}:/runner/compare.mjs:ro`];
   const runs = [];
   const percentile = (values, p) => [...values].sort((a,b) => a-b)[Math.max(0, Math.ceil(values.length*p)-1)];
@@ -47,7 +48,7 @@ if (mode === 'serve') {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
         assert(port, 'entry did not bind within startup budget');
-        const perf = JSON.parse(docker('run', '--rm', '--network', network, ...limits, ...runner, '-v', `${kit}/program/env/src:/suite:ro`, image, 'node', '/runner/compare.mjs', 'client', `http://${name}:${port}`));
+        const perf = JSON.parse(docker('run', '--rm', '--network', network, ...clientLimits, ...runner, '-v', `${kit}/program/env/src:/suite:ro`, image, 'node', '/runner/compare.mjs', 'client', `http://${name}:${port}`));
         docker('stop', '-t', '5', name);
         const metrics = JSON.parse(docker('logs', name).split('\n').at(-1));
         for (const w of perf.workloads) { assert.equal(w.error, undefined); assert.equal(w.rounds.length, 10); }
@@ -65,6 +66,6 @@ if (mode === 'serve') {
         return [w.name, { median_ms: median, p95_ms: percentile(rounds, 0.95), ops_per_sec: w.ops * 1000 / median, rounds: rounds.length, errors: 0 }];
       }));
     }
-    writeFileSync(output, JSON.stringify({ image, limits, order: 'ABBA', runs, summary }, null, 2));
+    writeFileSync(output, JSON.stringify({ image, limits, client_limits: clientLimits, order: 'ABBA', runs, summary }, null, 2));
   } finally { docker('network', 'rm', network); }
 }
