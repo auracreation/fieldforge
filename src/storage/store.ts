@@ -71,7 +71,7 @@ export class Store {
     issue.node_id=this.id('Issue',issue); r.issues.set(issue.number,issue); r.issueStates.open.add(issue.number); return issue;
   }
   listIssues(r,state='open',direction='desc') { need(['all','open','closed'].includes(state),422,'Invalid issue state'); const numbers=state==='all'?[...r.issues.keys()]:[...r.issueStates[state]];numbers.sort((a,b)=>direction==='asc'?a-b:b-a);return numbers.map(n=>r.issues.get(n)); }
-  issueJson(i) { const {comments,repo,...out}=i; return {...out,comments:comments.length}; }
+  issueJson(i) { return {id:i.id,number:i.number,title:i.title,body:i.body,state:i.state,labels:i.labels,user:i.user,created_at:i.created_at,updated_at:i.updated_at,closed_at:i.closed_at,node_id:i.node_id,comments:i.comments.length}; }
   updateIssue(i,input) {
     record(input);
     if ('state' in input) need(['open','closed'].includes(input.state),422,'Invalid issue state');

@@ -2,6 +2,9 @@ import { inflateSync, deflateSync } from 'node:zlib';
 import { hash, objectId } from './objects.ts';
 const TYPES = [null,'commit','tree','blob','tag'];
 const MAX = 32 * 1024 * 1024;
+// Git objects are immutable; weak keys release compressed bytes with their repository.
+let compressed = new WeakMap(), compressedBytes = 0;
+const COMPRESSED_LIMIT = 8 * 1024 * 1024;
 export function applyDelta(base, delta, remaining = 128 * 1024 * 1024) {
   let at = 0;
   function size() { let n = 0, factor = 1, byte; do { if (at >= delta.length || factor > 2 ** 35) throw new Error('truncated delta'); byte = delta[at++]; n += (byte & 127) * factor; factor *= 128; } while (byte & 128); return n; }
@@ -68,6 +71,16 @@ function header(type, length) {
 }
 export function writePack(objects) {
   const prefix = Buffer.alloc(12); prefix.write('PACK'); prefix.writeUInt32BE(2,4); prefix.writeUInt32BE(objects.length,8);
-  const body = Buffer.concat([prefix,...objects.flatMap(o => [header(o.type,o.data.length),deflateSync(o.data,{level:1})])]);
+  const body = Buffer.concat([prefix,...objects.map(o => {
+    let entry = compressed.get(o);
+    if (!entry) {
+      entry = Buffer.concat([header(o.type,o.data.length),deflateSync(o.data,{level:1})]);
+      if (entry.length <= COMPRESSED_LIMIT) {
+        if (compressedBytes + entry.length > COMPRESSED_LIMIT) { compressed = new WeakMap(); compressedBytes = 0; }
+        compressed.set(o,entry); compressedBytes += entry.length;
+      }
+    }
+    return entry;
+  })]);
   return Buffer.concat([body,Buffer.from(hash(body),'hex')]);
 }
