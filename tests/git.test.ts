@@ -90,3 +90,19 @@ test('large packs remain canonical across compressed-cache turnover', () => {
   const big={type:'blob',data:randomBytes(9*1024*1024)};
   assert.deepEqual(readPack(writePack([big])).values().next().value.data,big.data);
 });
+test('pack inflation preserves empty and slab-boundary objects and size validation', () => {
+  for (const size of [0, 1, 63, 64, 65, 16383, 16384, 16385]) {
+    const data = randomBytes(size), pack = writePack([{ type: 'blob', data }]);
+    assert.deepEqual([...readPack(pack).values()][0].data, data);
+  }
+  const prefix = Buffer.alloc(12); prefix.write('PACK'); prefix.writeUInt32BE(2, 4); prefix.writeUInt32BE(1, 8);
+  const bytes = Buffer.concat([prefix, Buffer.from([0x30]), deflateSync(Buffer.from('x'))]);
+  assert.throws(() => readPack(Buffer.concat([bytes, sha1(bytes)])), /pack object size/);
+});
+
+test('small decoded blobs do not retain default inflate slabs', () => {
+  const data = Buffer.alloc(100, 65);
+  const decoded = [...readPack(writePack([{type:'blob',data}])).values()][0].data;
+  assert.deepEqual(decoded, data);
+  assert(decoded.buffer.byteLength < 16384);
+});

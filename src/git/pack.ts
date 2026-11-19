@@ -42,7 +42,7 @@ export function readPack(bytes, existing = new Map()) {
     if (type === 6) { byte = bytes[at++]; let distance = byte & 127; while (byte & 128) { if (at >= bytes.length - 20) throw new Error('delta offset'); byte = bytes[at++]; distance = (distance + 1) * 128 + (byte & 127); } base = start - distance; if (base >= start || !offsets.has(base)) throw new Error('delta offset'); }
     else if (type === 7) { if (at + 20 > bytes.length - 20) throw new Error('delta reference'); base = bytes.subarray(at,at+20).toString('hex'); at += 20; }
     else if (!TYPES[type]) throw new Error('pack object type');
-    const inflated = inflateSync(bytes.subarray(at,-20), { info: true, maxOutputLength: MAX });
+    const inflated = inflateSync(bytes.subarray(at,-20), { info: true, maxOutputLength: MAX, chunkSize: Math.max(64, Math.min(size, 16 * 1024)) });
     at += inflated.engine.bytesWritten;
     if (inflated.buffer.length !== size) throw new Error('pack object size');
     const e = { type, data: inflated.buffer, base, start }; entries.push(e); offsets.set(start,e);
