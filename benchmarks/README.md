@@ -22,3 +22,9 @@ node benchmarks/compare.mjs compare "$KIT" "$BASELINE" "$CANDIDATE" "$RESULTS.js
 This runner calls the kit's unmodified benchmark module in a separate client container. Both client and entry use the pinned Node image, 2 CPUs, UID 65534, read-only mounts and an internal Docker network. The entry has 1 GiB RAM and 256 PIDs; the client matches the kit's env limits of 256 MiB and 64 PIDs. It uses the official inputs, five warm-ups and workload concurrency, with ten measured rounds per workload in each fresh process. Four blocks run in ABBA order, giving twenty measured rounds per workload per version. The JSON holds all rounds, nearest-rank median and p95, throughput, failure assertions, entry CPU and peak RSS. A mismatched final store checksum or a failed workload aborts the comparison. This extended benchmark does not replace the official grader's conformance and live/replay checks.
 
 Set `DOCKER_HOST` and `DOCKER_CONFIG` for the intended Docker runtime. Source and kit paths must be visible inside its VM. Host contention can change wall times substantially; record it and compare paired runs rather than treating measurements from different days as equivalent.
+
+The comparison also records host load at the start, end and before each block,
+and entry event-loop delay percentiles (10-ms sampling resolution). These delay
+samples include fixture setup and shutdown; they are process diagnostics, not
+per-request latency. Keep profiling and other benchmark series sequential to
+avoid introducing additional contention.

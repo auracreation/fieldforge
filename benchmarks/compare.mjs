@@ -4,16 +4,20 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { loadavg } from 'node:os';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 const [mode, ...args] = process.argv.slice(2);
 if (mode === 'serve') {
   const { createApp } = await import('/bot/app.ts');
   const { Store } = await import('/bot/src/storage/store.ts');
+  const eventLoop = monitorEventLoopDelay({ resolution: 10 }); eventLoop.enable();
   const store = new Store(), server = createApp({ store, token: 'benchmark-token' });
   await new Promise(resolve => server.listen(0, resolve));
   console.log(JSON.stringify({ port: server.address().port }));
   process.on('SIGTERM', () => {
-    const metrics = { cpu: process.cpuUsage(), resources: process.resourceUsage() };
+    eventLoop.disable();
+    const metrics = { cpu: process.cpuUsage(), resources: process.resourceUsage(), event_loop_ms: { p50: eventLoop.percentile(50) / 1e6, p95: eventLoop.percentile(95) / 1e6, p99: eventLoop.percentile(99) / 1e6, max: eventLoop.max / 1e6 } };
     console.log(JSON.stringify({ ...metrics, state: createHash('sha256').update(store.export()).digest('hex') }));
     server.close(); server.closeAllConnections(); process.exit(0);
   });
@@ -32,12 +36,13 @@ if (mode === 'serve') {
   const limits = ['--cpus', '2', '--memory', '1g', '--memory-swap', '1g', '--pids-limit', '256', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '-u', '65534:65534'];
   const clientLimits = ['--cpus', '2', '--memory', '256m', '--memory-swap', '256m', '--pids-limit', '64', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '-u', '65534:65534'];
   const runner = ['-v', `${script}:/runner/compare.mjs:ro`];
-  const runs = [];
+  const runs = [], host = { started: new Date().toISOString(), load_start: loadavg() };
   const percentile = (values, p) => [...values].sort((a,b) => a-b)[Math.max(0, Math.ceil(values.length*p)-1)];
   docker('network', 'create', '--internal', network);
   try {
     // ABBA puts each snapshot before and after the other, with fresh stores for every block.
     for (const [index, label] of ['baseline', 'candidate', 'candidate', 'baseline'].entries()) {
+      const hostLoad = loadavg();
       const name = `${network}-${index}`, repo = label === 'baseline' ? baseline : candidate;
       docker('run', '-d', '--name', name, '--network', network, ...limits, ...runner, '-v', `${repo}:/bot:ro`, image, 'node', '/runner/compare.mjs', 'serve');
       try {
@@ -52,7 +57,7 @@ if (mode === 'serve') {
         docker('stop', '-t', '5', name);
         const metrics = JSON.parse(docker('logs', name).split('\n').at(-1));
         for (const w of perf.workloads) { assert.equal(w.error, undefined); assert.equal(w.rounds.length, 10); }
-        runs.push({ label, perf, metrics });
+        runs.push({ label, host_load: hostLoad, perf, metrics });
         console.log(label, Object.fromEntries(perf.workloads.map(w => [w.name, w.p50_ms])));
       } finally { docker('rm', '-f', name); }
     }
@@ -66,6 +71,6 @@ if (mode === 'serve') {
         return [w.name, { median_ms: median, p95_ms: percentile(rounds, 0.95), ops_per_sec: w.ops * 1000 / median, rounds: rounds.length, errors: 0 }];
       }));
     }
-    writeFileSync(output, JSON.stringify({ image, limits, client_limits: clientLimits, order: 'ABBA', runs, summary }, null, 2));
+    writeFileSync(output, JSON.stringify({ host: { ...host, finished: new Date().toISOString(), load_end: loadavg() }, image, limits, client_limits: clientLimits, order: 'ABBA', runs, summary }, null, 2));
   } finally { docker('network', 'rm', network); }
 }
